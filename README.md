@@ -9,3 +9,7 @@
 - `pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu129`
 - then `pip install faster-whisper`
 - then `pip install -r requirements.txt`
+
+## troubles / todo:
+- some words are skipped. might be my mic, or the smaller models i'm using
+- hallucinations like `thank you` and the likes
