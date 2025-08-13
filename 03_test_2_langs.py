@@ -6,8 +6,8 @@ from faster_whisper import WhisperModel
 
 # Settings
 samplerate = 16000
-block_duration = 0.5  # seconds
-chunk_duration = 2    # seconds
+block_duration = 3  # seconds - length of blocks of audio captured
+chunk_duration = 2    # seconds - if you don't speak, then it will process
 channels = 1
 
 frames_per_block = int(samplerate * block_duration)
@@ -17,7 +17,7 @@ audio_queue = queue.Queue()
 audio_buffer = []
 
 # Model setup: medium.en + float16 (optimized for 3080)
-model = WhisperModel("small", device="cuda", compute_type="float32")  # use model size "medium.en" for faster results but slightly less accuracy
+model = WhisperModel("base", device="cuda", compute_type="float32")  # use model size "medium.en" for faster results but slightly less accuracy
 
 def audio_callback(indata, frames, time, status):
     if status:
@@ -45,14 +45,15 @@ def transcriber():
             audio_data = audio_data.flatten().astype(np.float32)
 
             # Transcription without timestamps
-            segments, _ = model.transcribe(
-                audio_data,
-                language="es",
-                beam_size=1  # Max speed
-            )
+            for lang in ["es", "en"]:
+                segments, _ = model.transcribe(
+                    audio_data,
+                    language=lang,
+                    beam_size=2  # Max speed
+                )
 
-            for segment in segments:
-                print(f"{segment.text}")  # Just print text, no timestamps
+                for segment in segments:
+                    print(f"{segment.text}")  # Just print text, no timestamps
 
 # Start threads
 threading.Thread(target=recorder, daemon=True).start()
