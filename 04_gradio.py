@@ -3,6 +3,7 @@ import numpy as np
 import queue
 import threading
 from faster_whisper import WhisperModel
+import gradio as gr
 
 # Settings
 samplerate = 16000
@@ -19,12 +20,65 @@ audio_buffer = []
 # Model setup: medium.en + float16 (optimized for 3080)
 model = WhisperModel("base", device="cuda", compute_type="float32")  # use model size "medium.en" for faster results but slightly less accuracy
 
+
+def get_transcription(stream):
+    print("get transcription...")
+    # Transcription without timestamps
+    for lang in ["en"]:
+        segments, _ = model.transcribe(
+            stream,
+            language=lang,
+            beam_size=2  # Max speed
+        )
+
+        text_output = ""
+        for segment in segments:
+            text_output += segment.text + " "
+        return text_output.strip()
+
+def transcribe(stream, new_chunk):
+    print("transcribe...")
+    sr, y = new_chunk
+    
+    # Convert to mono if stereo
+    if y.ndim > 1:
+        y = y.mean(axis=1)
+
+    # Convert to float32 and normalize    
+    y = y.astype(np.float32)
+    y /= np.max(np.abs(y))
+
+    # Concatenate with previous audio stream
+    if stream is not None:
+        stream = np.concatenate([stream, y])
+    else:
+        stream = y
+
+    # Only transcribe if we have enough audio (equivalent to old chunk_duration)
+    min_samples = int(sr * 5)  # 2 seconds minimum
+    if len(stream) < min_samples:
+        return stream, ""
+
+    return stream, get_transcription(stream)  
+
+print("Creating Gradio interface...")
+demo = gr.Interface(
+    transcribe,
+    ["state", gr.Audio(sources=["microphone"], streaming=True)],
+    ["state", "text"],
+    live=True,
+)
+
+demo.launch(share=True, debug=True)
+
+
 def audio_callback(indata, frames, time, status):
     if status:
         print(status)
     audio_queue.put(indata.copy())
 
 def recorder():
+    print("Starting recorder with input:")
     with sd.InputStream(samplerate=samplerate, channels=channels,
                         callback=audio_callback, blocksize=frames_per_block):
         print("🎙 Listening... Press Ctrl+C to stop.")
@@ -56,5 +110,7 @@ def transcriber():
                     print(f"{segment.text}")  # Just print text, no timestamps
 
 # Start threads
-threading.Thread(target=recorder, daemon=True).start()
-transcriber()
+def start_threads(mic_input):
+    print("Starting transcription...")
+    threading.Thread(target=recorder, daemon=True).start()
+    transcriber()
