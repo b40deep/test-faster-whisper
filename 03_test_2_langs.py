@@ -6,8 +6,9 @@ from faster_whisper import WhisperModel
 
 # Settings
 samplerate = 16000
-block_duration = 3  # seconds - length of blocks of audio captured
+block_duration = 1  # seconds - length of blocks of audio captured
 chunk_duration = 2    # seconds - if you don't speak, then it will process
+beam_size = 1  # 1 Max speed
 channels = 1
 
 frames_per_block = int(samplerate * block_duration)
@@ -45,11 +46,11 @@ def transcriber():
             audio_data = audio_data.flatten().astype(np.float32)
 
             # Transcription without timestamps
-            for lang in ["en"]:
+            for lang in ["es","en"]:
                 segments, _ = model.transcribe(
                     audio_data,
                     language=lang,
-                    beam_size=2  # Max speed
+                    beam_size=beam_size  # Max speed
                 )
 
                 for segment in segments:

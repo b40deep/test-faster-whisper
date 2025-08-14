@@ -4,10 +4,12 @@ import queue
 import threading
 from faster_whisper import WhisperModel
 import gradio as gr
+import torch
+import torchaudio.functional as F
 
 # Settings
 samplerate = 16000
-block_duration = 3  # seconds - length of blocks of audio captured
+block_duration = 1  # seconds - length of blocks of audio captured
 chunk_duration = 2    # seconds - if you don't speak, then it will process
 channels = 1
 
@@ -20,25 +22,41 @@ audio_buffer = []
 # Model setup: medium.en + float16 (optimized for 3080)
 model = WhisperModel("base", device="cuda", compute_type="float32")  # use model size "medium.en" for faster results but slightly less accuracy
 
+def resample_audio_torchaudio(audio_data, orig_sr, target_sr):
+    """Resample audio using torchaudio for high quality and speed"""
+    if orig_sr == target_sr:
+        return audio_data
+    
+    # Convert numpy to torch tensor
+    audio_tensor = torch.from_numpy(audio_data).float()
+    
+    # Resample using torchaudio
+    resampled_tensor = F.resample(audio_tensor, orig_sr, target_sr)
+    
+    return resampled_tensor.numpy().astype(np.float32)
 
 def get_transcription(stream):
-    print("get transcription...")
     # Transcription without timestamps
     for lang in ["en"]:
         segments, _ = model.transcribe(
             stream,
             language=lang,
-            beam_size=2  # Max speed
+            beam_size=1  # Max speed
         )
 
         text_output = ""
         for segment in segments:
             text_output += segment.text + " "
+        print(f"\tTranscription: {text_output.strip()}")
         return text_output.strip()
 
 def transcribe(stream, new_chunk):
-    print("transcribe...")
+    print(f"transcribe...\n\t{stream}\n\t{new_chunk}")
+    if new_chunk is None:
+        return stream, ""
+    
     sr, y = new_chunk
+    target_sr = 16000
     
     # Convert to mono if stereo
     if y.ndim > 1:
@@ -46,7 +64,13 @@ def transcribe(stream, new_chunk):
 
     # Convert to float32 and normalize    
     y = y.astype(np.float32)
-    y /= np.max(np.abs(y))
+    if np.max(np.abs(y)) > 0:
+        y = y / np.max(np.abs(y))
+
+    # Resample to 16kHz using torchaudio (high quality)
+    if sr != target_sr:
+        y = resample_audio_torchaudio(y, sr, target_sr)
+        sr = target_sr
 
     # Concatenate with previous audio stream
     if stream is not None:
@@ -55,62 +79,36 @@ def transcribe(stream, new_chunk):
         stream = y
 
     # Only transcribe if we have enough audio (equivalent to old chunk_duration)
-    min_samples = int(sr * 5)  # 2 seconds minimum
+    min_samples = int(sr * block_duration)  # seconds minimum
     if len(stream) < min_samples:
         return stream, ""
 
     return stream, get_transcription(stream)  
 
-print("Creating Gradio interface...")
-demo = gr.Interface(
-    transcribe,
-    ["state", gr.Audio(sources=["microphone"], streaming=True)],
-    ["state", "text"],
-    live=True,
-)
+# Gradio interface
+def gradio_interface():
+    print("Creating Gradio parts...")
+    mic_audio =  gr.Audio(label="mic", sources=["microphone"], type="numpy", streaming=True)
+    txt_output_1 = gr.Textbox(label="words", lines=3, max_lines=3, autoscroll=True)
 
-demo.launch(share=True, debug=True)
+    print("Creating Gradio interface...")
+    with gr.Blocks() as demo:
+        state = gr.State()  # For internal state tracking
+        with gr.Row():
+            with gr.Column():
+                mic_audio.render()
+        with gr.Row():
+            with gr.Column():
+                txt_output_1.render()
 
+        mic_audio.change(show_progress='hidden',
+            fn=transcribe,
+            inputs=[state, mic_audio],
+            outputs=[state, txt_output_1],
+            # live=True,
+        )
+    return demo
 
-def audio_callback(indata, frames, time, status):
-    if status:
-        print(status)
-    audio_queue.put(indata.copy())
-
-def recorder():
-    print("Starting recorder with input:")
-    with sd.InputStream(samplerate=samplerate, channels=channels,
-                        callback=audio_callback, blocksize=frames_per_block):
-        print("🎙 Listening... Press Ctrl+C to stop.")
-        while True:
-            sd.sleep(100)
-
-def transcriber():
-    global audio_buffer
-    while True:
-        block = audio_queue.get()
-        audio_buffer.append(block)
-
-        total_frames = sum(len(b) for b in audio_buffer)
-        if total_frames >= frames_per_chunk:
-            audio_data = np.concatenate(audio_buffer)[:frames_per_chunk]
-            audio_buffer = []  # Clear buffer
-
-            audio_data = audio_data.flatten().astype(np.float32)
-
-            # Transcription without timestamps
-            for lang in ["en"]:
-                segments, _ = model.transcribe(
-                    audio_data,
-                    language=lang,
-                    beam_size=2  # Max speed
-                )
-
-                for segment in segments:
-                    print(f"{segment.text}")  # Just print text, no timestamps
-
-# Start threads
-def start_threads(mic_input):
-    print("Starting transcription...")
-    threading.Thread(target=recorder, daemon=True).start()
-    transcriber()
+if __name__ == "__main__":
+    gradio_app = gradio_interface()
+    gradio_app.launch(share=True, debug=True)

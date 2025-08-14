@@ -17,7 +17,7 @@ audio_queue = queue.Queue()
 audio_buffer = []
 
 # Model setup: medium.en + float16 (optimized for 3080)
-model = WhisperModel("small", device="cuda", compute_type="float32")  # use model size "medium.en" for faster results but slightly less accuracy
+model = WhisperModel("base", device="cuda", compute_type="float32")  # use model size "medium.en" for faster results but slightly less accuracy
 
 def audio_callback(indata, frames, time, status):
     if status:
@@ -47,7 +47,7 @@ def transcriber():
             # Transcription without timestamps
             segments, _ = model.transcribe(
                 audio_data,
-                language="es",
+                language="en",
                 beam_size=1  # Max speed
             )
 
