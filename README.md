@@ -12,4 +12,4 @@
 
 ## troubles / todo:
 - some words are skipped. might be my mic, or the smaller models i'm using
-- hallucinations like `thank you` and the likes
+- hallucinations like `thank you` and the like keep streaming when nobody is speaking. Now i see why most systems like this use VAD to trigger the STT and cut off any chance of these. 
