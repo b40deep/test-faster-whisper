@@ -135,6 +135,7 @@ def gradio_interface():
         )
     return demo
 
+
 if __name__ == "__main__":
     gradio_app = gradio_interface()
     gradio_app.launch(share=True, debug=True)
