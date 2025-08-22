@@ -1,3 +1,4 @@
+import random
 import sounddevice as sd
 import numpy as np
 import queue
@@ -20,13 +21,13 @@ audio_queue = queue.Queue()
 audio_buffer = []
 
 # Model setup: medium.en + float16 (optimized for 3080)
-model = WhisperModel("base", device="cuda", compute_type="float32")  # use model size "medium.en" for faster results but slightly less accuracy
+model = WhisperModel("medium", device="cuda", compute_type="float32")  # use model size "medium.en" for faster results but slightly less accuracy
 
-EN = "en"
-ES = "es"
-languages = [EN, ES]
+EN:str = "en"
+ES:str = "es"
+languages:list[str] = [EN]
 
-def resample_audio_torchaudio(audio_data, orig_sr, target_sr):
+def resample_audio_torchaudio(audio_data, orig_sr, target_sr) -> np.ndarray:
     """Resample audio using torchaudio for high quality and speed"""
     if orig_sr == target_sr:
         return audio_data
@@ -39,27 +40,28 @@ def resample_audio_torchaudio(audio_data, orig_sr, target_sr):
     
     return resampled_tensor.numpy().astype(np.float32)
 
-def get_transcription(stream):
+def get_transcription(stream) -> list[dict[str, str]]:
     # Transcription without timestamps
     multilingual_text = []
     for lang in languages:
         segments, _ = model.transcribe(
             stream,
+            vad_filter=True,
             language=lang,
             beam_size=1  # Max speed
         )
 
-        text_output = ""
+        text_output:str = ""
         for segment in segments:
             text_output += segment.text + " "
         text_output = text_output.strip()
         multilingual_text.append({lang: text_output})
-        print(f"\tTranscription: {text_output}")
+        # print(f"\tTranscription: {text_output}")
     return multilingual_text
 
 
-def transcribe(stream, new_chunk):
-    print(f"transcribe...")
+def transcribe(stream, new_chunk) -> tuple[str, str, str, str]:
+    print(f"transcribe...{random.randint(10,20)}")
     if new_chunk is None:
         return stream, ""
     
@@ -92,8 +94,19 @@ def transcribe(stream, new_chunk):
         return stream, "", "", ""
     else:
         res = get_transcription(stream)
-        txt1, txt2 = [list(item.values())[0] for item in res]
-        return stream, txt1, txt2, txt2
+        if len(res) == 1:
+            txt1 = list(res[0].values())[0]
+            final_res = stream, txt1, txt1, txt1
+        elif len(res) == 2:
+            txt1 = list(res[0].values())[0]
+            txt2 = list(res[1].values())[0]
+            final_res = stream, txt1, txt2, txt2
+        elif len(res) == 3:
+            txt1 = list(res[0].values())[0]
+            txt2 = list(res[1].values())[0]
+            txt3 = list(res[2].values())[0]
+            final_res = stream, txt1, txt2, txt3
+        return final_res
 
 # Gradio interface
 def gradio_interface():
